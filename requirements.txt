@@ -1,0 +1,10 @@
+folium==0.19.6
+geopandas==1.0.1
+geopy==2.4.1
+matplotlib==3.10.3
+numpy==2.2.6
+pandas==2.2.3
+scikit_learn==1.6.1
+seaborn==0.13.2
+streamlit==1.45.1
+streamlit_folium==0.25.0
