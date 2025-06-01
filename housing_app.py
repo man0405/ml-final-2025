@@ -400,8 +400,6 @@ with col_input:
                 "direction": direction
             }
 
-            st.write("Input Data:")
-            st.write(input_data)
             # Process input data for the model
             processed_df = process_input_for_prediction(input_data)
             # display processed data
@@ -435,4 +433,4 @@ with col_input:
         )
 
         # display giá trị dự đoán
-        st.metric(label='Giá trị nhà trung bình', value=f"{pred:,.3f} Tỷ VND")
+        st.metric(label='Giá trị nhà trung bình', value=f"{pred:,.4f} Tỷ VND")
