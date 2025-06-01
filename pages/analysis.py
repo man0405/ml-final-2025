@@ -10,7 +10,36 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 
 st.set_page_config(page_title="Housing Data Analysis",
-                   page_icon=":chart_with_upwards_trend:", layout="wide")
+                   page_icon=":chart_with_upwards_trend:",
+                   layout="wide",
+                   initial_sidebar_state="expanded")
+
+# Custom CSS to keep sidebar always open and hide collapse button
+st.markdown("""
+<style>
+    /* Hide the sidebar collapse button */
+    .css-1d391kg {
+        display: none;
+    }
+    
+    /* Alternative selector for newer Streamlit versions */
+    button[kind="header"][data-testid="baseButton-header"] {
+        display: none;
+    }
+    
+    /* Ensure sidebar stays expanded */
+    .css-1lcbmhc {
+        min-width: 244px !important;
+        max-width: 244px !important;
+    }
+    
+    /* Alternative for newer versions */
+    section[data-testid="stSidebar"] {
+        min-width: 244px !important;
+        max-width: 244px !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 
 def _max_width_(prcnt_width: int = 70):

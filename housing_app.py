@@ -1,4 +1,5 @@
 import time
+from datetime import datetime
 from geopy.exc import GeocoderUnavailable
 from utils.combiner import CombinedAttributesAdder
 from streamlit_folium import st_folium
@@ -15,8 +16,35 @@ st.set_page_config(
     page_title="Housing Prices Prediction",
     page_icon=":house:",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
+
+# Custom CSS to keep sidebar always open and hide collapse button
+st.markdown("""
+<style>
+    /* Hide the sidebar collapse button */
+    .css-1d391kg {
+        display: none;
+    }
+    
+    /* Alternative selector for newer Streamlit versions */
+    button[kind="header"][data-testid="baseButton-header"] {
+        display: none;
+    }
+    
+    /* Ensure sidebar stays expanded */
+    .css-1lcbmhc {
+        min-width: 244px !important;
+        max-width: 244px !important;
+    }
+    
+    /* Alternative for newer versions */
+    section[data-testid="stSidebar"] {
+        min-width: 244px !important;
+        max-width: 244px !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 
 def initialize_session_states():
@@ -40,6 +68,8 @@ def initialize_session_states():
         st.session_state['map_center'] = [14.0, 110.0]
     if 'map_zoom' not in st.session_state:
         st.session_state['map_zoom'] = 5.5
+    if 'prediction_history' not in st.session_state:
+        st.session_state['prediction_history'] = []
 
 
 # Call initialization immediately
@@ -370,22 +400,22 @@ with col_input:
                     distance_km = geopy.distance.distance(
                         nearest_city_coords, housing_coords).km
 
-                    st.session_state[
-                        'address_output'] = f'Thành phố gần nhất: {nearest_city} | Khoảng cách: {distance_km:.2f} km'
-                    nearest_city_marker = create_marker(
-                        map_vn, nearest_city_loc,
-                        icon_color='green')
+                    # st.session_state[
+                    #     'address_output'] = f'Thành phố gần nhất: {nearest_city} | Khoảng cách: {distance_km:.2f} km'
+                    # nearest_city_marker = create_marker(
+                    #     map_vn, nearest_city_loc,
+                    #     icon_color='green')
 
-                    line_markers = link_two_markers(
-                        housing_marker, nearest_city_marker, tooltip=f'Khoảng cách: {distance_km:.2f} km')
+                    # line_markers = link_two_markers(
+                    #     housing_marker, nearest_city_marker, tooltip=f'Khoảng cách: {distance_km:.2f} km')
 
                     st.session_state['markers'].append(
                         {'marker': housing_marker, 'address': address})
-                    st.session_state['markers'].append(
-                        {'marker': nearest_city_marker, 'address': "n_city_" + address})
-                    st.session_state['lines'].append(line_markers)
+                    # st.session_state['markers'].append(
+                    #     {'marker': nearest_city_marker, 'address': "n_city_" + address})
+                    # st.session_state['lines'].append(line_markers)
                 else:
-                    st.session_state['address_output'] = f'Địa chỉ: {address} | Không tìm thấy thành phố gần nhất'
+                    st.session_state['address_output'] = f'Địa chỉ: {address} '
                     st.session_state['markers'].append(
                         {'marker': housing_marker, 'address': address})
 
@@ -454,6 +484,24 @@ with col_input:
 
             st.session_state['prediction'] = prediction
             st.session_state['pca_prediction'] = pca_prediction
+
+            # Save prediction to history
+            prediction_entry = {
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'address': address,
+                'area': area,
+                'floors': floors,
+                'bedrooms': bedrooms,
+                'bathrooms': bathrooms,
+                'legal_status': legal_status,
+                'furniture_state': furniture_state,
+                'direction': direction,
+                'original_prediction': prediction,
+                'pca_prediction': pca_prediction,
+                'average_prediction': (prediction + pca_prediction) / 2
+            }
+            st.session_state['prediction_history'].append(prediction_entry)
+
             st.success("Hoàn tất dự đoán bằng cả 2 mô hình!")
 
     if st.session_state['prediction'] and st.session_state['pca_prediction']:
@@ -553,3 +601,93 @@ with col_input:
         # Fallback for original prediction only
         pred = st.session_state['prediction']
         st.metric(label='Giá trị nhà trung bình', value=f"{pred:,.4f} Tỷ VND")
+
+# Prediction History Section
+if st.session_state['prediction_history']:
+    st.markdown("---")
+    st.subheader("📋 Lịch sử dự đoán")
+
+    # Add buttons to manage history
+    col_hist1, col_hist2, col_hist3 = st.columns([1, 1, 2])
+
+    with col_hist1:
+        if st.button("🗑️ Xóa lịch sử", use_container_width=True):
+            st.session_state['prediction_history'] = []
+            st.rerun()
+
+    with col_hist2:
+        if st.button("📤 Xuất CSV", use_container_width=True):
+            import pandas as pd
+            df_history = pd.DataFrame(st.session_state['prediction_history'])
+            csv = df_history.to_csv(index=False)
+            st.download_button(
+                label="💾 Tải xuống",
+                data=csv,
+                file_name=f"prediction_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+    # Display history in a nice format
+    with st.expander(f"📊 Xem {len(st.session_state['prediction_history'])} dự đoán gần đây", expanded=True):
+        # Show last 10
+        for i, entry in enumerate(reversed(st.session_state['prediction_history'][-10:])):
+            with st.container():
+                st.markdown(
+                    f"**#{len(st.session_state['prediction_history']) - i}** - {entry['timestamp']}")
+
+                col_h1, col_h2, col_h3 = st.columns([2, 1, 1])
+
+                with col_h1:
+                    st.write(f"📍 **Địa chỉ:** {entry['address']}")
+                    st.write(
+                        f"🏠 **Thông tin:** {entry['area']}m² | {entry['bedrooms']} phòng ngủ | {entry['bathrooms']} phòng tắm | {entry['floors']} tầng")
+                    st.write(
+                        f"📋 **Tình trạng:** {entry['legal_status']} | {entry['furniture_state']} | {entry['direction']}")
+
+                with col_h2:
+                    st.metric("🏠 Mô hình gốc",
+                              f"{entry['original_prediction']:,.4f} Tỷ")
+                    st.metric("📊 Mô hình PCA",
+                              f"{entry['pca_prediction']:,.4f} Tỷ")
+
+                with col_h3:
+                    st.metric("⚖️ Trung bình",
+                              f"{entry['average_prediction']:,.4f} Tỷ")
+                    diff = abs(entry['original_prediction'] -
+                               entry['pca_prediction'])
+                    diff_pct = (
+                        diff / max(entry['original_prediction'], entry['pca_prediction'])) * 100
+                    st.write(f"📈 Chênh lệch: {diff_pct:.1f}%")
+
+                st.markdown("---")
+
+        if len(st.session_state['prediction_history']) > 10:
+            st.info(
+                f"Hiển thị 10 dự đoán gần nhất. Tổng cộng có {len(st.session_state['prediction_history'])} dự đoán.")
+
+    # Statistics
+    if len(st.session_state['prediction_history']) > 1:
+        with st.expander("📊 Thống kê tổng quan", expanded=False):
+            df_stats = pd.DataFrame(st.session_state['prediction_history'])
+
+            col_s1, col_s2, col_s3 = st.columns(3)
+
+            with col_s1:
+                st.metric("Tổng số dự đoán", len(df_stats))
+                st.metric("Giá trung bình (Mô hình gốc)",
+                          f"{df_stats['original_prediction'].mean():,.4f} Tỷ")
+
+            with col_s2:
+                st.metric("Giá cao nhất",
+                          f"{df_stats['average_prediction'].max():,.4f} Tỷ")
+                st.metric("Giá thấp nhất",
+                          f"{df_stats['average_prediction'].min():,.4f} Tỷ")
+
+            with col_s3:
+                avg_diff = abs(
+                    df_stats['original_prediction'] - df_stats['pca_prediction']).mean()
+                st.metric("Chênh lệch TB giữa 2 mô hình",
+                          f"{avg_diff:,.4f} Tỷ")
+                avg_area = df_stats['area'].mean()
+                st.metric("Diện tích trung bình", f"{avg_area:.1f} m²")
