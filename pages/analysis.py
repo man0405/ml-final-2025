@@ -135,6 +135,7 @@ if data is not None:
     st.success(
         "Địa chỉ sẽ được chuyển đổi thành tọa độ (latitude, longitude) để phân tích tiếp theo.")
     data_geo = read_data("data/vietnam_housing_dataset_final.csv")
+    data_train = read_data("data/data_train.csv")
 
     data_geo = data_geo.drop(
         columns=['Unnamed: 0', 'Address'], errors='ignore')
@@ -149,7 +150,17 @@ if data is not None:
     if data_geo is not None:
         st.write("📋 Dữ liệu địa lý:")
         data_geo = data_geo.drop(
-            columns=['latitude', 'longitude'], errors='ignore')
+            columns=['latitude', 'longitude', 'price_per_m2'], errors='ignore')
+        # add columns avg_price_area
+        # Check if avg_price_area exists in data_train before adding it
+        if data_train is not None and 'avg_price_area' in data_train.columns:
+            data_geo['avg_price_area'] = data_train['avg_price_area']
+        else:
+            st.warning(
+                "Column 'avg_price_area' not found in data_train.csv. Skipping this step.")
+            st.info("Available columns in data_train: " + str(list(data_train.columns)
+                    if data_train is not None else "No data loaded"))
+
         st.dataframe(data_geo)
 # xử lý missing values của House direction vaf balcony direction,
     toc.header("🏠 Xử lý hướng nhà và ban công")
@@ -879,14 +890,14 @@ if data is not None:
     # Mã hóa các giá trị
     st.info("""
     **Chiến lược mã hóa:**
-    - Full (đầy đủ nội thất): 1
-    - Basic (nội thất cơ bản): 0.5  
+    - Full (đầy đủ nội thất): 2
+    - Basic (nội thất cơ bản): 1  
     - Missing/None (không nội thất): 0
     """)
 
     data_furniture_processed['Furniture state'] = data_furniture_processed['Furniture state'].replace({
-        'full': 1,
-        'basic': 0.5,
+        'full': 2,
+        'basic': 1,
     })
 
     # Điền giá trị missing với 0 (không nội thất)
@@ -920,7 +931,7 @@ if data is not None:
     data_geo = data_furniture_processed.copy()
 
 # Xử lý tình trạng pháp lý (Legal status)
-    toc.header("### ⚖️ Xử lý tình trạng pháp lý (Legal status)")
+    toc.header("⚖️ Xử lý tình trạng pháp lý (Legal status)")
 
     # Hiển thị số liệu duy nhất của Legal status
     toc.subheader("Tình trạng pháp lý (Legal status)")

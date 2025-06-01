@@ -9,38 +9,14 @@ import pickle
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+
 st.set_page_config(
     page_title="Housing Prices Prediction",
     page_icon=":house:",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-
-## -----------------------------------------------------------------------------------------##
-# Functions
-
-
-def _max_width_(prcnt_width: int = 70):
-    max_width_str = f"max-width: {prcnt_width}%; margin: 0 auto;"
-    st.markdown(
-        f"""
-        <style>
-        .appview-container .main .block-container {{
-            {max_width_str}
-            padding-top: 1rem;
-            padding-bottom: 1rem;
-        }}
-        .stApp {{
-            max-width: {prcnt_width}%;
-            margin: 0 auto;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-_max_width_(70)
 
 
 def initialize_session_states():
@@ -86,10 +62,26 @@ def load_combiner():
     with st.spinner('Loading components..'):
         return CombinedAttributesAdder()
 
+# read file csv
+
+
+@st.cache_data
+def read_csv_file(filepath: str):
+    with st.spinner(f'Reading {filepath}...'):
+        try:
+            return pd.read_csv(filepath)
+        except FileNotFoundError:
+            st.error(f"File not found: {filepath}")
+            return pd.DataFrame()
+
 
 geolocator = initialize_nominatim()
-loaded_model = load_model('model/linear_reg_model.pkl')
+loaded_model_package = load_model('model/best_original_model.pkl')
 combiner = load_combiner()
+cell_filter = read_csv_file('data/vietnam_grid_5s.csv')
+cell_filter['avg_price'] = cell_filter['total_price'] / cell_filter['quantity']
+
+epsilon = 0.01389
 
 
 def get_location(address: str, timeout: int = 10):
@@ -103,6 +95,48 @@ def get_location(address: str, timeout: int = 10):
 
 def transform_data(data: pd.DataFrame):
     return combiner.add_nearest_cities(data)
+
+
+def get_avg_price_are(lat, lon):
+    matches = cell_filter[(cell_filter['lat'] <= lat) & (lat <= cell_filter['lat'] + epsilon) &
+                          (cell_filter['log'] <= lon) & (lon <= cell_filter['log'] + epsilon)]
+
+    if len(matches) > 0:
+        return matches['avg_price'].mean()
+    else:
+        return cell_filter['avg_price'].mean()
+
+
+def process_input_for_prediction(input_data):
+    """Process input data to match the model's expected format"""
+    # Convert input to DataFrame
+    df = pd.DataFrame([input_data])
+
+    # Map categorical values to numerical
+    # Furniture state mapping: Basic=0, Full=1, None=2
+    furniture_mapping = {"Basic": 0.5, "Full": 1, "None": 0}
+    df['Furniture state'] = furniture_mapping[input_data['furniture_state']]
+
+    df['avg_price_area'] = get_avg_price_are(
+        input_data['lat'], input_data['lon'])
+
+    # One-hot encode legal status
+    df['Legal_status_have_certificate'] = 1 if input_data['legal_status'] == 'With Certificate' else 0
+    df['Legal_status_sales_contract'] = 1 if input_data['legal_status'] == 'Sales Contract' else 0
+
+    # Rename columns to match training data
+    df = df.rename(columns={
+        'area': 'Area',
+        'floors': 'Floors',
+        'bedrooms': 'Bedrooms',
+        'bathrooms': 'Bathrooms'
+    })
+
+    # Select only the features the model expects
+    feature_columns = ['Area', 'Floors', 'Bedrooms', 'Bathrooms', 'Furniture state',
+                       'avg_price_area', 'Legal_status_have_certificate', 'Legal_status_sales_contract']
+
+    return df[feature_columns]
 
 
 def get_nearest_city(location):
@@ -177,7 +211,6 @@ def create_map():
 # Initialize session state immediately after imports
 initialize_session_states()
 
-_max_width_(70)
 
 # Title and navigation button
 col_title, col_nav = st.columns([3, 1])
@@ -185,13 +218,16 @@ with col_title:
     st.title("VietNam Housing Prices Prediction")
 with col_nav:
     if st.button("Phân tích dữ liệu", use_container_width=True):
+
         st.switch_page("pages/analysis.py")
+    if st.button("Train và đánh giá model", use_container_width=True):
+        st.switch_page("pages/train_and_evaluate.py")
 
 st.markdown("""
 ##### A web application for predicting VietNam Housing Prices.
  
 This app uses machine learning to predict the price of the house. 
-It loads a pre-trained linear regression model, which takes as input various features of the house, 
+It loads a pre-trained Random Forest model (R² = 0.998), which takes as input various features of the house, 
 such as area, floors, bedrooms, bathrooms, legal status, furniture state, direction, and location,
 and outputs the predicted price of the house.
 """)
@@ -364,8 +400,23 @@ with col_input:
                 "direction": direction
             }
 
-            input_df = pd.DataFrame([input_data])
-            prediction = loaded_model.predict(input_df).squeeze()
+            st.write("Input Data:")
+            st.write(input_data)
+            # Process input data for the model
+            processed_df = process_input_for_prediction(input_data)
+            # display processed data
+            st.write("Processed Input Data:")
+            st.dataframe(processed_df)
+
+            # Scale the features using the saved scaler
+            scaled_features = loaded_model_package['scaler'].transform(
+                processed_df)
+
+            # Make prediction using the best model
+            prediction = loaded_model_package['model'].predict(
+                scaled_features).squeeze()
+            st.write("Prediction Result:")
+
             st.session_state['prediction'] = prediction
             st.success("Hoàn tất!")
 
@@ -382,4 +433,6 @@ with col_input:
             """,
             unsafe_allow_html=True,
         )
-        st.metric(label='Giá trị nhà trung bình', value=f"{pred:,.0f} VND")
+
+        # display giá trị dự đoán
+        st.metric(label='Giá trị nhà trung bình', value=f"{pred:,.3f} Tỷ VND")
