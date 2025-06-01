@@ -28,6 +28,8 @@ def initialize_session_states():
         st.session_state['fg'] = None
     if 'prediction' not in st.session_state:
         st.session_state['prediction'] = None
+    if 'pca_prediction' not in st.session_state:
+        st.session_state['pca_prediction'] = None
     if 'address' not in st.session_state:
         st.session_state['address'] = None
     if 'address_output' not in st.session_state:
@@ -77,6 +79,7 @@ def read_csv_file(filepath: str):
 
 geolocator = initialize_nominatim()
 loaded_model_package = load_model('model/best_original_model.pkl')
+loaded_pca_model_package = load_model('model/best_pca_model.pkl')
 combiner = load_combiner()
 cell_filter = read_csv_file('data/vietnam_grid_5s.csv')
 cell_filter['avg_price'] = cell_filter['total_price'] / cell_filter['quantity']
@@ -137,6 +140,25 @@ def process_input_for_prediction(input_data):
                        'avg_price_area', 'Legal_status_have_certificate', 'Legal_status_sales_contract']
 
     return df[feature_columns]
+
+
+def process_input_for_pca_prediction(input_data):
+    """Process input data for PCA model prediction"""
+    # First get the original processed data
+    df = process_input_for_prediction(input_data)
+
+    # Scale the features first (before PCA transformation)
+    scaled_features = loaded_pca_model_package['scaler'].transform(df)
+
+    # Apply PCA transformation using the loaded PCA transformer
+    pca_features = loaded_pca_model_package['pca'].transform(scaled_features)
+
+    # Convert to DataFrame with PCA column names
+    n_components = pca_features.shape[1]
+    pca_columns = [f'PC{i+1}' for i in range(n_components)]
+    pca_df = pd.DataFrame(pca_features, columns=pca_columns)
+
+    return pca_df
 
 
 def get_nearest_city(location):
@@ -226,10 +248,13 @@ with col_nav:
 st.markdown("""
 ##### A web application for predicting VietNam Housing Prices.
  
-This app uses machine learning to predict the price of the house. 
-It loads a pre-trained Random Forest model (R² = 0.998), which takes as input various features of the house, 
-such as area, floors, bedrooms, bathrooms, legal status, furniture state, direction, and location,
-and outputs the predicted price of the house.
+This app uses machine learning to predict the price of houses using **two different models**:
+
+🏠 **Original Data Model (Random Forest):** Uses all original features with R² = 0.998  
+📊 **PCA Model (Support Vector Regression):** Uses dimensionally reduced features with R² = 0.978
+
+Both models take as input various features of the house such as area, floors, bedrooms, bathrooms, 
+legal status, furniture state, direction, and location, and output predicted prices for comparison.
 """)
 
 # Create map after initializing session state
@@ -400,37 +425,131 @@ with col_input:
                 "direction": direction
             }
 
-            # Process input data for the model
-            processed_df = process_input_for_prediction(input_data)
-            # display processed data
-            st.write("Processed Input Data:")
-            st.dataframe(processed_df)
+            # Process input data for both models
+            st.subheader("🔄 Xử lý dữ liệu đầu vào")
 
-            # Scale the features using the saved scaler
+            processed_df = process_input_for_prediction(input_data)
+            processed_pca_df = process_input_for_pca_prediction(input_data)
+
+            # Display processed data
+            with st.expander("📋 Xem dữ liệu đã xử lý (Original Features)", expanded=False):
+                st.dataframe(processed_df)
+
+            with st.expander("📊 Xem dữ liệu đã xử lý (PCA Features)", expanded=False):
+                st.dataframe(processed_pca_df)
+
+            st.subheader("🤖 Thực hiện dự đoán")
+
+            # Scale the features using the saved scalers and make predictions
+
+            # Original model prediction
             scaled_features = loaded_model_package['scaler'].transform(
                 processed_df)
-
-            # Make prediction using the best model
             prediction = loaded_model_package['model'].predict(
                 scaled_features).squeeze()
-            st.write("Prediction Result:")
+
+            # PCA model prediction (scaling already done in process_input_for_pca_prediction)
+            pca_prediction = loaded_pca_model_package['model'].predict(
+                processed_pca_df).squeeze()
 
             st.session_state['prediction'] = prediction
-            st.success("Hoàn tất!")
+            st.session_state['pca_prediction'] = pca_prediction
+            st.success("Hoàn tất dự đoán bằng cả 2 mô hình!")
 
-    if st.session_state['prediction']:
-        pred = st.session_state['prediction']
+    if st.session_state['prediction'] and st.session_state['pca_prediction']:
+        original_pred = st.session_state['prediction']
+        pca_pred = st.session_state['pca_prediction']
+
         st.markdown(
             """
             <style>
             [data-testid="stMetricValue"] {
-                font-size: 34px;
-                color: green;
+                font-size: 28px;
+            }
+            .metric-original {
+                color: #1f77b4;
+            }
+            .metric-pca {
+                color: #ff7f0e;
+            }
+            .metric-average {
+                color: #2ca02c;
+                font-weight: bold;
             }
             </style>
             """,
             unsafe_allow_html=True,
         )
 
-        # display giá trị dự đoán
+        # Display predictions from both models
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.markdown('<div class="metric-original">',
+                        unsafe_allow_html=True)
+            st.metric(
+                label='🏠 Mô hình dữ liệu gốc (Random Forest)',
+                value=f"{original_pred:,.4f} Tỷ VND",
+                help="R² = 0.998"
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with col2:
+            st.markdown('<div class="metric-pca">', unsafe_allow_html=True)
+            st.metric(
+                label='📊 Mô hình PCA (SVR)',
+                value=f"{pca_pred:,.4f} Tỷ VND",
+                help="R² = 0.978"
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with col3:
+            avg_pred = (original_pred + pca_pred) / 2
+            st.markdown('<div class="metric-average">', unsafe_allow_html=True)
+            st.metric(
+                label='⚖️ Giá trị trung bình',
+                value=f"{avg_pred:,.4f} Tỷ VND",
+                help="Trung bình của 2 mô hình"
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # Show comparison analysis
+        st.markdown("---")
+        st.subheader("📈 Phân tích so sánh")
+
+        diff_absolute = abs(original_pred - pca_pred)
+        diff_percentage = (diff_absolute / max(original_pred, pca_pred)) * 100
+
+        col_analysis1, col_analysis2 = st.columns(2)
+
+        with col_analysis1:
+            st.write(f"**Chênh lệch tuyệt đối:** {diff_absolute:.4f} Tỷ VND")
+            st.write(f"**Chênh lệch tương đối:** {diff_percentage:.2f}%")
+
+            if diff_percentage < 5:
+                st.success("✅ Hai mô hình cho kết quả tương đồng cao")
+            elif diff_percentage < 15:
+                st.warning("⚠️ Có sự khác biệt nhẹ giữa hai mô hình")
+            else:
+                st.error("❌ Sự khác biệt lớn giữa hai mô hình")
+
+        with col_analysis2:
+            # Determine which model predicts higher
+            if original_pred > pca_pred:
+                st.info(
+                    f"📈 Mô hình dữ liệu gốc dự đoán cao hơn {diff_absolute:.4f} Tỷ VND")
+            elif pca_pred > original_pred:
+                st.info(
+                    f"📈 Mô hình PCA dự đoán cao hơn {diff_absolute:.4f} Tỷ VND")
+            else:
+                st.info("🎯 Hai mô hình dự đoán giống hệt nhau")
+
+            # Recommendation based on model performance
+            st.write("**💡 Khuyến nghị:**")
+            st.write(
+                "Mô hình dữ liệu gốc có độ chính xác cao hơn (R² = 0.998) so với mô hình PCA (R² = 0.978)")
+
+    elif st.session_state['prediction']:
+        # Fallback for original prediction only
+        pred = st.session_state['prediction']
         st.metric(label='Giá trị nhà trung bình', value=f"{pred:,.4f} Tỷ VND")
